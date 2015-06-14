@@ -11,3 +11,7 @@
 Session.vim
 .netrwhist
 *~
+
+### IPythonNotebook ###
+# Temporary data
+.ipynb_checkpoints/

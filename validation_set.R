@@ -1,72 +1,57 @@
 #!/usr/bin/RScript
+## this script creates validation set for internal prediction algorithms testing
+## this script partly implements logic proposed in: 
 
-##TODO: clean and comment
+packs <- suppressWarnings(require(rjson) & require(data.table) & require(ggplot2))
+if (!packs) print('please install all aforementioned packages')
 
 
-require(rjson)
-require(data.table)
-require(ggplot2)
-
+## TODO: make a reading function
+## read raw train and test data to data.table
 train <- read.csv("data/train.csv")
 train <- data.table(train)
 
-##
-#train <- train[MISSING_DATA!='True']
-
-##
-train <- train[POLYLINE!='[]']
-setkey(train, TRIP_ID)
-
-##
-train[, TIMESTAMP:=(as.POSIXct(as.integer(TIMESTAMP), origin="1970-01-01", tz='GMT'))]
-train[, sample_date:=as.Date(TIMESTAMP)]
-
-## the same days as in test set but for 2013
-dates <- as.Date(c("2013-08-14", "2013-09-30", "2013-10-06", "2013-11-01" , "2013-12-21"))
-valid <- train[sample_date %in% dates]
-
-
-#######################
-## forked
 test <- read.csv("data/test.csv")
 test <- data.table(test)
 
+## we are not interesred in missing data as for now
+train <- train[POLYLINE!='[]']
+setkey(train, TRIP_ID)
 
-##
 test <- test[POLYLINE!='[]']
 setkey(test, TRIP_ID)
 
-##
-test[, POLYLINE:=as.character(POLYLINE)]
 
-##
+## convert unix timestamps to human readable date and time
+train[, TIMESTAMP:=(as.POSIXct(as.integer(TIMESTAMP), origin="1970-01-01", tz='GMT'))]
 test[, TIMESTAMP:=(as.POSIXct(as.integer(TIMESTAMP), origin="1970-01-01", tz='GMT'))]
-test[, sample_date:=as.Date(TIMESTAMP)]
-##
-unique(test$sample_date)
-#[1] "2014-08-14" "2014-09-30" "2014-10-06" "2014-11-01" "2014-12-21"
 
-##
-test[, SNAPSHOTS:=length(fromJSON(as.character(POLYLINE))), by=TRIP_ID]
-test[, duration_snapshots:=SNAPSHOTS*15/60]
-##
-ggplot(test) + geom_histogram(aes(x=duration_snapshots), binwidth=5) + theme_bw()
+## extract corresponding date 
+train[, date:=as.Date(TIMESTAMP)]
+test[, date:=as.Date(TIMESTAMP)]
+
+## extract all unique dates for the test set (there are 5 days in 2014) 
+dates <- as.Date(unique(test$date))
+
+## extract the same dates from the train set (in 2013)
+valid <- train[date %in% dates-365]
+
+## plotting a histogram of duration of trips tracking time in the test test 
+test[, POLYLINE:=as.character(POLYLINE)]
+test[, snapshot:=length(fromJSON(POLYLINE)), by=TRIP_ID]
+test[, snapshot_duration:=snapshot*15/60]
+ggplot(test) + geom_histogram(aes(x=snapshot_duration), binwidth=5) + theme_bw()
+ggsave('snapshots_duration.png')
+
+## use a maximum timestamp within each day as a cutoff time for a validation set 
+test[, cutoff:=max(TIMESTAMP), by=date]
+times <- unique(test$cutoff) - 365*24*60*60
 
 
-
-##
-test[, CUTOFF:=max(TIMESTAMP), by=sample_date]
-test[, duration_timestamp:=as.numeric(CUTOFF-TIMESTAMP)/60]
-
-##############
-
-times <- unique(test$CUTOFF) - 365*24*60*60
-
-
-valid[, end_time:=TIMESTAMP + length(fromJSON(as.character(POLYLINE)))*15, by=TRIP_ID]
+## TODO: correct a mistake with maximum time 
+valid[, end_time:=TIMESTAMP + length(fromJSON(POLYLINE))*15, by=TRIP_ID]
 valid[, cutoff:=max(TIMESTAMP), by=sample_date]
 valid1 <- valid[end_time>=cutoff & TIMESTAMP<cutoff]
-
 valid1 <- as.data.frame(valid1)
 
 valid1$cut_polyline <- "a"
